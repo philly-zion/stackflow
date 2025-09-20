@@ -309,3 +309,94 @@
     )
   )
 )
+
+;; Admin function to update platform fee
+(define-public (set-platform-fee (new-fee-basis-points uint))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_UNAUTHORIZED)
+    (asserts! (<= new-fee-basis-points u1000) ERR_INVALID_AMOUNT) ;; Max 10%
+    (var-set platform-fee-basis-points new-fee-basis-points)
+    (ok true)
+  )
+)
+
+;; Admin function to update fee collector
+(define-public (set-fee-collector (new-collector principal))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_UNAUTHORIZED)
+    ;; Basic validation that the new collector is not the zero address
+    (asserts! (not (is-eq new-collector 'SP000000000000000000002Q6VF78))
+      ERR_INVALID_AMOUNT
+    )
+    (var-set fee-collector new-collector)
+    (ok true)
+  )
+)
+
+;; Read-only functions
+
+(define-read-only (get-payment (payment-id uint))
+  (map-get? payments payment-id)
+)
+
+(define-read-only (get-payment-by-reference
+    (business principal)
+    (reference (string-ascii 64))
+  )
+  (let ((payment-id (map-get? payment-references {
+      business: business,
+      reference: reference,
+    })))
+    (match payment-id
+      id (map-get? payments id)
+      none
+    )
+  )
+)
+
+(define-read-only (get-business (business-principal principal))
+  (map-get? businesses business-principal)
+)
+
+(define-read-only (get-business-balance (business-principal principal))
+  (default-to u0 (map-get? business-balances business-principal))
+)
+
+(define-read-only (get-platform-fee)
+  (var-get platform-fee-basis-points)
+)
+
+(define-read-only (get-fee-collector)
+  (var-get fee-collector)
+)
+
+(define-read-only (calculate-fees
+    (amount uint)
+    (business-fee-rate uint)
+  )
+  (let (
+      (platform-fee (/ (* amount (var-get platform-fee-basis-points)) u10000))
+      (business-fee (/ (* amount business-fee-rate) u10000))
+    )
+    {
+      platform-fee: platform-fee,
+      business-fee: business-fee,
+      total-fees: (+ platform-fee business-fee),
+      net-amount: (- amount (+ platform-fee business-fee)),
+    }
+  )
+)
+
+(define-read-only (is-payment-valid (payment-id uint))
+  (match (map-get? payments payment-id)
+    payment (and
+      (is-eq (get status payment) "pending")
+      (< stacks-block-height (get expires-at payment))
+    )
+    false
+  )
+)
+
+(define-read-only (get-next-payment-id)
+  (var-get next-payment-id)
+)
